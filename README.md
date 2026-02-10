@@ -2,6 +2,23 @@
 
 ![Logo](assets/ai搜索.png)
 
+## 📸 界面预览
+
+### 1. 黑夜/白天模式一键切换
+采用高级莫兰迪配色，不管是白天的雪白色还是晚上的深色模式，都干净利落，不伤眼。
+
+![预览-深色模式](assets/preview-dark.png)
+
+### 2. 界面对比 (Everything vs 星TAP)
+如果你觉得原版的 Everything 界面太像“古董表格”，那么星TAP 就是为你准备的。更现代、更直观、更易用。
+
+| Everything (原版) | 星TAP (极速搜索) |
+| :---: | :---: |
+| ![Everything 对比 1](assets/compare-01.png) | ![星TAP 对比 1](assets/compare-01.png) |
+| ![Everything 对比 2](assets/compare-02.png) | ![星TAP 对比 2](assets/compare-02.png) |
+
+*(注：对比图中左侧为 Everything 原版界面，右侧为星TAP 现代化界面)*
+
 ## 🌟 为什么要在你的电脑里放一个“星TAP”？
 
 如果你觉得 Windows 自带的搜索太慢，而原版的 Everything 界面又太像“古董表格”，那么星TAP 就是为你准备的。
