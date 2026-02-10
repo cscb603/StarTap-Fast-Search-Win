@@ -1,0 +1,87 @@
+[package]
+name = "starsearch"
+version = "0.2.0"
+edition = "2021"
+description = "星TAP极速搜索 - 极简高性能版"
+
+[[bin]]
+name = "星TAP极速搜索"
+path = "src/main.rs"
+
+[[bin]]
+name = "test_backend"
+path = "src/test_backend.rs"
+
+[dependencies]
+# 异步运行时
+tokio = { version = "1.35", features = ["full"] }
+
+# GUI 框架 - 迁移到 egui 以获得完美的中文 IME 支持
+eframe = { version = "0.29", default-features = false, features = [
+    "default_fonts",
+    "glow",          # OpenGL 渲染，支持半透明
+    "persistence",   # 窗口状态持久化
+] }
+egui = { version = "0.29", features = ["default_fonts"] }
+
+# 语法高亮预览 (bat 核心)
+syntect = { version = "5.2", default-features = false, features = [
+    "default-fancy",
+] }
+
+# 全局热键与托盘
+global-hotkey = "0.6"
+tray-icon = "0.19"
+
+# 剪贴板
+arboard = "3"
+
+# 核心搜索与工具
+walkdir = "2.5"
+ignore = "0.4"
+nucleo = "0.5" # 极速模糊匹配引擎
+open = "5.1" # 打开文件
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+image = "0.24"
+dirs = "5.0"
+once_cell = "1.19"
+rayon = "1.10" # 并行扫描加速
+chrono = "0.4"
+encoding_rs = "0.8"
+ntfs = "0.4"
+grep-regex = "0.1"
+grep-searcher = "0.1"
+redb = "2.1"
+clap = { version = "4.4", features = ["derive"] }
+windows-service = "0.7"
+shell-words = "1.1.1"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Console",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Graphics_Dwm",
+    "Win32_UI_HiDpi",
+    "Win32_Storage_FileSystem",
+    "Win32_Security",
+    "Win32_System_Threading",
+] }
+winapi = { version = "0.3", features = [
+    "winuser", "dwmapi", "wingdi",
+] }
+
+[build-dependencies]
+winres = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

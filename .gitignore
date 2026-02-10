@@ -1,0 +1,14 @@
+/target
+/dist
+**/*.rs.bk
+Cargo.lock
+.env
+.vscode
+.idea
+*.exe
+*.pdb
+*.dll
+!dist/星TAP极速搜索.exe
+!dist/lib/*.exe
+!dist/lib/*.dll
+!dist/assets/*
