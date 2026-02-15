@@ -1,5 +1,6 @@
-use eframe::egui;
 use crate::searcher::{SearchBackend, SearchEntry};
+use chrono::Timelike;
+use eframe::egui;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -78,7 +79,7 @@ pub struct StarSearchApp {
     visible: bool,
     #[allow(dead_code)]
     app_dir: PathBuf,
-    
+
     // 点击频率统计，用于智能排序
     click_counts: HashMap<String, u32>,
 
@@ -92,16 +93,21 @@ pub struct StarSearchApp {
 
     // 主题
     is_dark: bool,
+    
+    // 主题图标
+    day_icon: egui::TextureHandle,
+    night_icon: egui::TextureHandle,
 }
 
 impl StarSearchApp {
     pub fn new(_cc: &eframe::CreationContext<'_>, app_dir: PathBuf) -> Self {
         // 尝试从 AppData 加载历史点击频率
-        let click_counts: HashMap<String, u32> = if let Ok(data) = std::fs::read_to_string(crate::config::frecency_db_path()) {
-            serde_json::from_str(&data).unwrap_or_default()
-        } else {
-            HashMap::new()
-        };
+        let click_counts: HashMap<String, u32> =
+            if let Ok(data) = std::fs::read_to_string(crate::config::frecency_db_path()) {
+                serde_json::from_str(&data).unwrap_or_default()
+            } else {
+                HashMap::new()
+            };
 
         // 提取搜索词历史 (从点击路径中提取，或可以之后增加专门的历史存储)
         // 这里暂时基于高频点击的路径名提取
@@ -117,8 +123,10 @@ impl StarSearchApp {
             }
         }
 
-        // 默认深色主题
-        let is_dark = true;
+        // 根据时间自动选择主题：白天(6:00-18:00)浅色，晚上深色
+        let now = chrono::Local::now();
+        let hour = now.hour();
+        let is_dark = !(6..18).contains(&hour);
 
         // 设置中文字体 (多路径探测)
         let mut fonts = egui::FontDefinitions::default();
@@ -132,15 +140,21 @@ impl StarSearchApp {
             if let Ok(data) = std::fs::read(path) {
                 fonts.font_data.insert(
                     "chinese".to_owned(),
-                    egui::FontData::from_owned(data).tweak(egui::FontTweak {
+                    std::sync::Arc::new(egui::FontData::from_owned(data).tweak(egui::FontTweak {
                         scale: 1.0,
                         y_offset_factor: -0.05,
                         ..Default::default()
-                    }),
+                    })),
                 );
-                fonts.families.get_mut(&egui::FontFamily::Proportional).unwrap()
+                fonts
+                    .families
+                    .get_mut(&egui::FontFamily::Proportional)
+                    .unwrap()
                     .insert(0, "chinese".to_owned());
-                fonts.families.get_mut(&egui::FontFamily::Monospace).unwrap()
+                fonts
+                    .families
+                    .get_mut(&egui::FontFamily::Monospace)
+                    .unwrap()
                     .push("chinese".to_owned());
                 break;
             }
@@ -148,16 +162,46 @@ impl StarSearchApp {
 
         _cc.egui_ctx.set_fonts(fonts);
 
-        // 设置透明背景
-        let mut visuals = egui::Visuals::dark();
+        // 加载主题图标 (嵌入二进制)
+        let day_icon_data = include_bytes!("../assets/day_icon.png");
+        let night_icon_data = include_bytes!("../assets/night_icon.png");
+        
+        let day_image = image::load_from_memory(day_icon_data).unwrap().to_rgba8();
+        let night_image = image::load_from_memory(night_icon_data).unwrap().to_rgba8();
+        
+        let (day_width, day_height) = day_image.dimensions();
+        let (night_width, night_height) = night_image.dimensions();
+        
+        let day_icon = _cc.egui_ctx.load_texture(
+            "day_icon",
+            egui::ColorImage::from_rgba_unmultiplied(
+                [day_width as usize, day_height as usize],
+                &day_image,
+            ),
+            egui::TextureOptions::default(),
+        );
+        
+        let night_icon = _cc.egui_ctx.load_texture(
+            "night_icon",
+            egui::ColorImage::from_rgba_unmultiplied(
+                [night_width as usize, night_height as usize],
+                &night_image,
+            ),
+            egui::TextureOptions::default(),
+        );
+
+        // 根据主题设置初始 Visuals
+        let mut visuals = if is_dark {
+            egui::Visuals::dark()
+        } else {
+            egui::Visuals::light()
+        };
         visuals.panel_fill = egui::Color32::TRANSPARENT;
         _cc.egui_ctx.set_visuals(visuals);
 
-        // DPI 感知与微调
-        let ppp = _cc.egui_ctx.pixels_per_point();
-        if ppp > 2.0 {
-            _cc.egui_ctx.set_pixels_per_point(2.0);
-        }
+        // DPI 感知：自动跟随系统，不强制限制
+        // 如果用户觉得界面太大或太小，可以通过系统缩放调整
+        let _ppp = _cc.egui_ctx.pixels_per_point();
 
         Self {
             query: String::new(),
@@ -173,6 +217,8 @@ impl StarSearchApp {
             debounce_ms: 50,
             search_history: history,
             is_dark,
+            day_icon,
+            night_icon,
         }
     }
 }
@@ -190,10 +236,10 @@ struct MorandiTheme {
 impl MorandiTheme {
     fn light() -> Self {
         Self {
-            bg: egui::Color32::from_rgb(250, 250, 250),      // 纯净雪白
+            bg: egui::Color32::from_rgb(250, 250, 250), // 纯净雪白
             panel_bg: egui::Color32::from_rgb(240, 240, 240), // 浅灰背景（中性色）
-            text: egui::Color32::from_rgb(40, 40, 40),       // 深黑灰文字
-            accent: egui::Color32::from_rgb(60, 120, 230),   // 经典深蓝（高亮色）
+            text: egui::Color32::from_rgb(40, 40, 40),  // 深黑灰文字
+            accent: egui::Color32::from_rgb(60, 120, 230), // 经典深蓝（高亮色）
             input_bg: egui::Color32::from_rgb(255, 255, 255),
         }
     }
@@ -211,14 +257,10 @@ impl MorandiTheme {
 
 impl eframe::App for StarSearchApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // 更新可见性状态
-        // 注意：eframe 0.27+ 中 viewport().visible 可能不直接存在于 input 中
-        // 我们通过 self.visible 状态由 main.rs 驱动
-        
         // 0. 搜索防抖逻辑
         if self.pending_search && self.last_input_change.elapsed().as_millis() >= self.debounce_ms {
             self.pending_search = false;
-            
+
             if self.query.is_empty() {
                 self.results.clear();
             } else {
@@ -235,19 +277,27 @@ impl eframe::App for StarSearchApp {
                         final_query = format!("{} {}", filter, q);
                     }
                 }
-                
+
                 let mut res = self.backend.search(final_query.trim());
-                println!("[DEBUG] GUI 搜索请求: '{}', 获取结果: {} 条", final_query.trim(), res.len());
-                
+                println!(
+                    "[DEBUG] GUI 搜索请求: '{}', 获取结果: {} 条",
+                    final_query.trim(),
+                    res.len()
+                );
+
                 // 智能排序：根据点击次数加权
                 let click_counts = &self.click_counts;
                 res.sort_by(|a, b| {
-                    let count_a = click_counts.get(&a.path.to_string_lossy().to_string()).unwrap_or(&0);
-                    let count_b = click_counts.get(&b.path.to_string_lossy().to_string()).unwrap_or(&0);
+                    let count_a = click_counts
+                        .get(&a.path.to_string_lossy().to_string())
+                        .unwrap_or(&0);
+                    let count_b = click_counts
+                        .get(&b.path.to_string_lossy().to_string())
+                        .unwrap_or(&0);
                     count_b.cmp(count_a) // 点击多的排前面
                 });
                 println!("[DEBUG] 排序完成");
-                
+
                 self.results = res;
                 self.selected_index = 0;
                 println!("[DEBUG] 状态更新完成");
@@ -257,10 +307,11 @@ impl eframe::App for StarSearchApp {
         if self.pending_search {
             ctx.request_repaint_after(std::time::Duration::from_millis(self.debounce_ms as u64));
         }
-        
+
         // 处理键盘快捷键
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            self.visible = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
 
         // 处理回车确认
@@ -269,43 +320,48 @@ impl eframe::App for StarSearchApp {
             let path_str = entry.path.to_string_lossy().to_string();
             let count = self.click_counts.entry(path_str.clone()).or_insert(0);
             *count += 1;
-            
+
             // 保存权重数据
             if let Ok(data) = serde_json::to_string(&self.click_counts) {
                 std::fs::write(crate::config::frecency_db_path(), data).ok();
             }
 
-            // 启动文件并隐藏窗口
-                let path_to_open = entry.path.clone();
-                std::thread::spawn(move || {
-                    let _ = open::that(&path_to_open);
-                });
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true)); // 同时最小化以确保任务栏响应
+            // 立即隐藏窗口
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            
+            // 异步启动文件打开
+            let path_to_open = entry.path.clone();
+            std::thread::spawn(move || {
+                let _ = open::that(&path_to_open);
+            });
         }
 
-        if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp))
-            && self.selected_index > 0 {
-                self.selected_index -= 1;
-            }
+        if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) && self.selected_index > 0 {
+            self.selected_index -= 1;
+        }
 
         if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown))
-            && self.selected_index < self.results.len().saturating_sub(1) {
-                self.selected_index += 1;
-            }
-        
+            && self.selected_index < self.results.len().saturating_sub(1)
+        {
+            self.selected_index += 1;
+        }
+
         // 确保持续轮询外部事件（热键、托盘）
         // 根据可见性调整刷新频率，平衡响应速度与功耗
         ctx.request_repaint_after(std::time::Duration::from_millis(50));
 
         // 莫兰迪配色方案
-        let theme = if self.is_dark { MorandiTheme::dark() } else { MorandiTheme::light() };
+        let theme = if self.is_dark {
+            MorandiTheme::dark()
+        } else {
+            MorandiTheme::light()
+        };
 
         // 自定义主面板框架
         let panel_frame = egui::Frame::none()
-            .fill(theme.panel_bg) 
+            .fill(theme.panel_bg)
             .rounding(egui::Rounding::same(12.0))
-            .inner_margin(egui::Margin::same(0.0)) 
+            .inner_margin(egui::Margin::same(0.0))
             .outer_margin(egui::Margin::same(1.0)) // 留出 1 像素避免圆角黑点
             .shadow(egui::Shadow::NONE);
         egui::CentralPanel::default()
@@ -349,14 +405,14 @@ impl eframe::App for StarSearchApp {
                                 .stroke(egui::Stroke::NONE));
                             if close_btn.clicked() {
                                 self.visible = false;
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                             }
                             if close_btn.hovered() {
                                 ui.painter().rect_filled(close_btn.rect, egui::Rounding::same(4.0), egui::Color32::from_rgba_unmultiplied(255, 80, 80, 100));
                             }
 
                             // 最小化按钮
-                            let min_btn = ui.add(egui::Button::new(egui::RichText::new("—").size(14.0))
+                            let min_btn = ui.add(egui::Button::new(egui::RichText::new("-").size(14.0))
                                 .fill(egui::Color32::TRANSPARENT)
                                 .stroke(egui::Stroke::NONE));
                             if min_btn.clicked() {
@@ -366,16 +422,35 @@ impl eframe::App for StarSearchApp {
                                 ui.painter().rect_filled(min_btn.rect, egui::Rounding::same(4.0), theme.accent.linear_multiply(0.2));
                             }
 
-                            // 主题切换按钮
-                            let theme_icon = if self.is_dark { "🌙" } else { "☀️" };
-                            let theme_btn = ui.add(egui::Button::new(egui::RichText::new(theme_icon).size(14.0))
-                                .fill(egui::Color32::TRANSPARENT)
-                                .stroke(egui::Stroke::NONE));
-                            if theme_btn.clicked() {
+                            // 主题切换按钮 - 使用PNG图标
+                            let icon_size = egui::vec2(24.0, 24.0);
+                            let theme_resp = if self.is_dark {
+                                ui.add(
+                                    egui::Button::image(
+                                        egui::Image::new(&self.day_icon).fit_to_exact_size(icon_size)
+                                    ).min_size(icon_size)
+                                )
+                            } else {
+                                ui.add(
+                                    egui::Button::image(
+                                        egui::Image::new(&self.night_icon).fit_to_exact_size(icon_size)
+                                    ).min_size(icon_size)
+                                )
+                            };
+                            
+                            if theme_resp.clicked() {
                                 self.is_dark = !self.is_dark;
+                                // 动态更新 egui Visuals
+                                let mut visuals = if self.is_dark {
+                                    egui::Visuals::dark()
+                                } else {
+                                    egui::Visuals::light()
+                                };
+                                visuals.panel_fill = egui::Color32::TRANSPARENT;
+                                ui.ctx().set_visuals(visuals);
                             }
-                            if theme_btn.hovered() {
-                                ui.painter().rect_filled(theme_btn.rect, egui::Rounding::same(4.0), theme.accent.linear_multiply(0.2));
+                            if theme_resp.hovered() {
+                                ui.painter().rect_filled(theme_resp.rect, egui::Rounding::same(4.0), theme.accent.linear_multiply(0.2));
                             }
                             
                             ui.add_space(8.0);
@@ -577,18 +652,23 @@ impl eframe::App for StarSearchApp {
                                             let bg_color = if self.is_dark {
                                                 egui::Color32::from_rgba_unmultiplied(100, 160, 255, 55)
                                             } else {
-                                                theme.accent.linear_multiply(0.15) // 使用醒目的主题蓝（透明度调整）
+                                                egui::Color32::from_rgba_unmultiplied(200, 220, 255, 200) // 经典浅蓝背景
                                             };
                                             let stroke_color = if self.is_dark {
                                                 egui::Color32::from_rgba_unmultiplied(100, 160, 255, 180)
                                             } else {
-                                                theme.accent.linear_multiply(0.6)
+                                                egui::Color32::from_rgb(80, 140, 220) // 经典深蓝边框
                                             };
                                             
                                             ui.painter().rect_filled(rect, 12.0, bg_color);
                                             ui.painter().rect_stroke(rect, 12.0, egui::Stroke::new(1.5, stroke_color));
                                         } else if response.hovered() {
-                                            ui.painter().rect_filled(rect, 12.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 15));
+                                            let hover_color = if self.is_dark {
+                                                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 15)
+                                            } else {
+                                                egui::Color32::from_rgba_unmultiplied(230, 240, 255, 150) // 浅色悬停
+                                            };
+                                            ui.painter().rect_filled(rect, 12.0, hover_color);
                                         }
 
                                         ui.allocate_new_ui(egui::UiBuilder::new().max_rect(rect.shrink2(egui::vec2(20.0, 10.0))), |ui: &mut egui::Ui| {
@@ -606,8 +686,12 @@ impl eframe::App for StarSearchApp {
                                                     job.wrap.max_rows = 1;
                                                     job.wrap.break_anywhere = true;
                                                     
-                                                    let highlight_color = egui::Color32::from_rgb(255, 215, 0);
-                                                    let normal_color = if is_selected { egui::Color32::WHITE } else { egui::Color32::from_rgb(220, 220, 230) };
+                                                    let highlight_color = egui::Color32::from_rgb(255, 140, 0);
+                                                    let normal_color = if is_selected { 
+                                                        if self.is_dark { egui::Color32::WHITE } else { egui::Color32::from_rgb(20, 60, 120) }
+                                                    } else { 
+                                                        if self.is_dark { egui::Color32::from_rgb(220, 220, 230) } else { egui::Color32::from_rgb(30, 30, 30) }
+                                                    };
                                                     
                                                     let query_lower = self.query.to_lowercase();
                                                     if !query_lower.is_empty() && name.to_lowercase().contains(&query_lower) {
@@ -671,30 +755,31 @@ impl eframe::App for StarSearchApp {
                         });
                 });
                 
-                // 右下角调整大小的手柄
-                let resize_response = ui.allocate_response(
-                    egui::vec2(20.0, 20.0),
-                    egui::Sense::drag(),
-                );
-                let resize_rect = egui::Rect::from_min_size(
-                    ui.max_rect().right_bottom() - egui::vec2(20.0, 20.0),
-                    egui::vec2(20.0, 20.0),
-                );
+                // 窗口边缘调整大小（检测鼠标在边缘位置并处理拖拽）
+                let window_rect = ui.max_rect();
+                let edge_size = 8.0;
                 
-                // 绘制手柄图标（三条斜杠）
-                let color = egui::Color32::from_rgba_unmultiplied(100, 160, 255, 100);
-                for i in 0..3 {
-                    let offset = i as f32 * 4.0;
-                    ui.painter().line_segment([
-                        resize_rect.right_bottom() - egui::vec2(4.0 + offset, 2.0),
-                        resize_rect.right_bottom() - egui::vec2(2.0, 4.0 + offset),
-                    ], egui::Stroke::new(1.5, color));
-                }
-
-                if resize_response.dragged() {
-                    // TODO: Find correct path for ResizeEdge in egui 0.29
-                    // ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(egui::viewport::ResizeEdge::BottomRight));
-                }
+                // 检测鼠标是否在边缘
+                let is_left = ctx.input(|i| i.pointer.hover_pos().map_or(false, |p| p.x < window_rect.left() + edge_size));
+                let is_right = ctx.input(|i| i.pointer.hover_pos().map_or(false, |p| p.x > window_rect.right() - edge_size));
+                let is_top = ctx.input(|i| i.pointer.hover_pos().map_or(false, |p| p.y < window_rect.top() + edge_size));
+                let is_bottom = ctx.input(|i| i.pointer.hover_pos().map_or(false, |p| p.y > window_rect.bottom() - edge_size));
+                
+                // 设置鼠标光标
+                let cursor = if (is_left || is_right) && (is_top || is_bottom) {
+                    if (is_left && is_top) || (is_right && is_bottom) {
+                        egui::CursorIcon::ResizeNwSe
+                    } else {
+                        egui::CursorIcon::ResizeNeSw
+                    }
+                } else if is_left || is_right {
+                    egui::CursorIcon::ResizeHorizontal
+                } else if is_top || is_bottom {
+                    egui::CursorIcon::ResizeVertical
+                } else {
+                    egui::CursorIcon::Default
+                };
+                ctx.set_cursor_icon(cursor);
             });
     }
 }
